@@ -1,0 +1,14 @@
+[Unit]
+Description=Workout Reminder Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.config/workout_bot
+ExecStart=%h/.local/share/workout_bot/venv/bin/python %h/.config/workout_bot/bot.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
