@@ -1,101 +1,96 @@
-# 🏋️ Workout Bot — Setup на Arch Linux
+# 🏋️ Workout Bot
 
-## 1. Создай бота
+Telegram-бот для персональных тренировок с автоматическим расписанием и трекингом прогресса.
 
-1. Открой Telegram → @BotFather → `/newbot`
-2. Сохрани токен
-3. Узнай свой user ID через @userinfobot
+## ✨ Основные возможности
 
----
+- **3 тренировки в день** с разным фокусом:
+  - 🌅 **Утро (11:00)** — верх тела (грудь, трицепс, плечи)
+  - ☀️ **День (16:00)** — ноги + кор
+  - 🌙 **Вечер (22:30)** — полное тело, лёгкая нагрузка
 
-## 2. Установи зависимости
+- **Рандизация упражнений** — 3 варианта на каждый слот, не надоест
 
-```fish
-# Создай venv (один раз)
-mkdir -p ~/.local/share/workout_bot
-python -m venv ~/.local/share/workout_bot/venv
+- **Трекинг выполнения**:
+  - ✅ Подтверждение прочтения уведомления
+  - ⬜ Отметка выполненных упражнений
+  - 💧 Напоминание выпить воды
 
-# Установи пакеты
-~/.local/share/workout_bot/venv/bin/pip install aiogram apscheduler python-dotenv
+- **Автонапоминания** — каждые 10 минут пока не подтвердишь
+
+- **Команды управления**:
+  - `/start` — приветствие и расписание
+  - `/status` — статус сегодняшних сессий
+  - `/test` — тестовое уведомление
+  - `/morning`, `/afternoon`, `/evening` — запуск конкретной сессии
+
+## 🛠 Технологический стек
+
+| Компонент     | Технология           |
+| ------------- | -------------------- |
+| Язык          | Python 3             |
+| Framework     | aiogram 3 (async)    |
+| Планировщик   | APScheduler          |
+| Развёртывание | systemd user service |
+| OS            | Arch Linux           |
+
+## 🚀 Быстрый старт
+
+```bash
+# 1. Создай бота в @BotFather и получи токен
+# 2. Узнай свой user ID через @userinfobot
+
+# 3. Установка
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 4. Настройка
+cp .env.example .env
+# Отредактируй .env — вставь BOT_TOKEN и USER_ID
+
+# 5. Запуск
+python bot.py
 ```
 
----
+## 📁 Структура проекта
 
-## 3. Разложи файлы
-
-```fish
-mkdir -p ~/.config/workout_bot
-cp bot.py ~/.config/workout_bot/
-cp .env ~/.config/workout_bot/
+```
+Trainer-Bot/
+├── bot.py              # Основной код бота
+├── requirements.txt    # Зависимости
+├── .env.example        # Шаблон переменных окружения
+├── workout-bot.service # systemd unit для автозапуска
+└── README.md           # Документация
 ```
 
-Отредактируй `.env`:
-```fish
-nvim ~/.config/workout_bot/.env
-```
+## 📅 Расписание по умолчанию
 
-Вставь свой токен и user_id.
+| Время | Слот      | Длительность |
+| ----- | --------- | ------------ |
+| 11:00 | morning   | 5–7 мин      |
+| 16:00 | afternoon | 5–7 мин      |
+| 22:30 | evening   | 5–7 мин      |
 
----
+> ⚙️ Timezone: `Europe/Moscow` (изменить в `bot.py` — `AsyncIOScheduler(timezone="...")`)
 
-## 4. Проверь вручную
+## 🔧 Автозапуск через systemd
 
-```fish
-~/.local/share/workout_bot/venv/bin/python ~/.config/workout_bot/bot.py
-```
-
-Напиши боту `/start` — должен ответить. `/test` — пришлёт тестовую зарядку.
-
----
-
-## 5. Автозапуск через systemd user service
-
-```fish
+```bash
+# Создай директорию для user service
 mkdir -p ~/.config/systemd/user
+
+# Скопируй unit-файл
 cp workout-bot.service ~/.config/systemd/user/
 
+# Перезагрузи daemon и включи сервис
 systemctl --user daemon-reload
 systemctl --user enable workout-bot.service
 systemctl --user start workout-bot.service
 
-# Проверить статус
+# Проверка статуса
 systemctl --user status workout-bot.service
 
-# Логи
+# Просмотр логов
 journalctl --user -u workout-bot.service -f
-```
-
----
-
-## 6. Команды бота
-
-| Команда      | Что делает                        |
-| ------------ | --------------------------------- |
-| `/start`     | Приветствие и расписание          |
-| `/status`    | Статус сегодняшних сессий         |
-| `/test`      | Тестовое уведомление прямо сейчас |
-| `/morning`   | Запустить утреннюю сессию         |
-| `/afternoon` | Запустить дневную сессию          |
-| `/evening`   | Запустить вечернюю сессию         |
-
----
-
-## Расписание
-
-| Время | Слот      | Фокус                             |
-| ----- | --------- | --------------------------------- |
-| 11:00 | morning   | Верх тела (грудь, трицепс, плечи) |
-| 16:00 | afternoon | Ноги + кор                        |
-| 22:30 | evening   | Полное тело, лёгкая нагрузка      |
-
-Каждый слот имеет **3 случайных варианта** упражнений — не надоест!
-
----
-
-## Timezone
-
-По умолчанию стоит `Europe/Moscow`. Если нужно другое — измени в `bot.py`:
-
-```python
-scheduler = AsyncIOScheduler(timezone="Europe/Berlin")
 ```
