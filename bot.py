@@ -33,7 +33,17 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 BOT_TOKEN: str = os.environ["BOT_TOKEN"]
-USER_ID: int = int(os.environ["USER_ID"])
+ALLOWED_USERS: list[int] = [
+    int(uid.strip())
+    for uid in os.environ.get("ALLOWED_USERS", "").split(",")
+    if uid.strip()
+]
+
+# Fallback to single USER_ID for backwards compatibility
+if not ALLOWED_USERS and os.environ.get("USER_ID"):
+    ALLOWED_USERS = [int(os.environ["USER_ID"])]
+
+REMINDER_INTERVAL_SEC: int = 600  # 10 minutes
 
 # ---------------------------------------------------------------------------
 # Workout content
@@ -378,20 +388,28 @@ async def send_session(bot: Bot, slot: str):
             "\n\n🚰 После зарядки — выпей стакан воды (комнатная температура)!")
 
     # Send read-confirmation message
-    read_msg = await bot.send_message(
-        USER_ID,
-        f"🔔 *{SLOT_LABELS[slot]}* — пора размяться!\n\nНажми кнопку, когда прочитал задание 👇",
-        parse_mode="Markdown",
-        reply_markup=read_keyboard(key, False),
-    )
+    try:
+        read_msg = await bot.send_message(
+            ALLOWED_USERS[0],
+            f"🔔 *{SLOT_LABELS[slot]}* — пора размяться!\n\nНажми кнопку, когда прочитал задание 👇",
+            parse_mode="Markdown",
+            reply_markup=read_keyboard(key, False),
+        )
+    except Exception as e:
+        log.error("Failed to send read message for %s: %s", slot, e)
+        return
 
     # Send workout detail message
-    workout_msg = await bot.send_message(
-        USER_ID,
-        text,
-        parse_mode="Markdown",
-        reply_markup=workout_keyboard(key, variant, {}),
-    )
+    try:
+        workout_msg = await bot.send_message(
+            ALLOWED_USERS[0],
+            text,
+            parse_mode="Markdown",
+            reply_markup=workout_keyboard(key, variant, {}),
+        )
+    except Exception as e:
+        log.error("Failed to send workout message for %s: %s", slot, e)
+        return
 
     sessions[key] = {
         "slot": slot,
@@ -410,20 +428,20 @@ async def send_session(bot: Bot, slot: str):
 
 async def repeat_reminder(bot: Bot, key: str):
     """Resend read-prompt every 10 minutes until confirmed."""
-    await asyncio.sleep(600)
+    await asyncio.sleep(REMINDER_INTERVAL_SEC)
     while True:
         s = sessions.get(key)
         if not s or s["read"]:
             return
         try:
             await bot.send_message(
-                USER_ID,
+                ALLOWED_USERS[0],
                 f"⏰ Напоминание! Ты ещё не отметил, что прочитал зарядку.\n"
                 f"Нажми кнопку выше или /status чтобы проверить.",
             )
         except Exception as e:
-            log.warning("reminder send failed: %s", e)
-        await asyncio.sleep(600)
+            log.warning("Reminder send failed: %s", e)
+        await asyncio.sleep(REMINDER_INTERVAL_SEC)
 
 
 # ---------------------------------------------------------------------------
@@ -443,12 +461,12 @@ async def handle_read(callback: CallbackQuery, key: str, bot: Bot):
 
     try:
         await bot.edit_message_reply_markup(
-            chat_id=USER_ID,
+            chat_id=ALLOWED_USERS[0],
             message_id=s["read_msg_id"],
             reply_markup=read_keyboard(key, confirmed=True),
         )
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Failed to edit read message: %s", e)
 
     await callback.answer("✅ Отмечено! Удачи с зарядкой 💪")
 
@@ -466,12 +484,12 @@ async def handle_exercise(callback: CallbackQuery, key: str, ex_index: int,
 
     try:
         await bot.edit_message_reply_markup(
-            chat_id=USER_ID,
+            chat_id=ALLOWED_USERS[0],
             message_id=s["workout_msg_id"],
             reply_markup=workout_keyboard(key, s["exercises"], s["done"]),
         )
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Failed to edit workout message: %s", e)
 
     if ex_index == -1:
         await callback.answer("💧 Вода отмечена!" if state else "↩️ Снято")
@@ -489,8 +507,14 @@ async def handle_exercise(callback: CallbackQuery, key: str, ex_index: int,
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher()
 
+    def is_allowed_user(user_id: int) -> bool:
+        return user_id in ALLOWED_USERS
+
     @dp.message(Command("start"))
     async def cmd_start(message: Message):
+        if not is_allowed_user(message.from_user.id):
+            log.warning("Unauthorized access attempt from user %d", message.from_user.id)
+            return
         await message.answer(
             "👋 Привет! Я буду напоминать тебе делать зарядку 3 раза в день:\n"
             "🌅 11:00 — утренняя (верх тела)\n"
@@ -503,6 +527,8 @@ def build_dispatcher() -> Dispatcher:
 
     @dp.message(Command("status"))
     async def cmd_status(message: Message):
+        if not is_allowed_user(message.from_user.id):
+            return
         date = today()
         lines = [f"📊 Статус на {date}:"]
         for slot in ("morning", "afternoon", "evening"):
@@ -521,6 +547,8 @@ def build_dispatcher() -> Dispatcher:
 
     @dp.message(Command("test"))
     async def cmd_test(message: Message):
+        if not is_allowed_user(message.from_user.id):
+            return
         bot: Bot = message.bot
         # pick random slot for test
         slot = random.choice(["morning", "afternoon", "evening"])
@@ -530,14 +558,20 @@ def build_dispatcher() -> Dispatcher:
 
     @dp.message(Command("morning"))
     async def cmd_morning(message: Message):
+        if not is_allowed_user(message.from_user.id):
+            return
         await send_session(message.bot, "morning")
 
     @dp.message(Command("afternoon"))
     async def cmd_afternoon(message: Message):
+        if not is_allowed_user(message.from_user.id):
+            return
         await send_session(message.bot, "afternoon")
 
     @dp.message(Command("evening"))
     async def cmd_evening(message: Message):
+        if not is_allowed_user(message.from_user.id):
+            return
         await send_session(message.bot, "evening")
 
     @dp.callback_query(F.data.startswith("read:"))
@@ -585,9 +619,12 @@ async def main():
     log.info("Bot started. Waiting for events...")
     try:
         await dp.start_polling(bot)
+    except (KeyboardInterrupt, SystemExit):
+        log.info("Bot shutting down...")
     finally:
         scheduler.shutdown()
         await bot.session.close()
+        log.info("Bot stopped.")
 
 
 if __name__ == "__main__":
